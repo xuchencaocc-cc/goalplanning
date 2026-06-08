@@ -1,0 +1,17 @@
+{
+  "current":  { "age": 38, "investable": 250000, "annual_savings": 18000 },
+  "goal":     { "retire_age": 60, "annual_spend_retire": 70000, "plan_to_age": 95 },
+  "assumptions": { "real_return": 0.05, "inflation": 0.03, "income_growth": 0.01 },
+  "market_scenario": { "mode": "sequence_risk", "runs": 3000, "crash_year": 1, "depth": -0.35, "seed": 42 },
+  "life_events": [
+    { "type": "child", "born_age": 35, "daycare_yrs": 5, "college_at": 18, "college_cost": 100000 },
+    { "type": "home_purchase", "age": 42, "down": 200000, "annual_payment_delta": 6000 },
+    { "type": "windfall", "age": 50, "amount": 80000 },
+    { "type": "derisk", "start": 60, "real_return": 0.03 }
+  ],
+  "whatifs": [
+    { "name": "retire@55", "overrides": { "retire_age": 55 } },
+    { "name": "startup@45", "overrides": { "add_events": [ { "type": "startup", "start": 45, "end": 47, "seed": 50000 } ] } }
+  ],
+  "solve_for": { "target": "annual_savings", "min_success": 0.9, "fixed": { "retire_age": 60 } }
+}
