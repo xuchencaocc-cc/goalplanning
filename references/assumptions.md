@@ -1,44 +1,51 @@
-# Default planning assumptions (v1)
+# Planning model & default assumptions (v1)
 
-All returns are **REAL** (after inflation). Always state which value you used in the answer.
+## Money model — NOMINAL + explicit inflation
+Assets grow at `nominal_return`; savings grow nominally; **retirement spend is given in today's
+purchasing power and inflated each year** (keeps standard of living). Spec amounts are NOMINAL — the
+figure the user pictures. **Every net-worth output is shown twice: nominal AND deflated to today's $**,
+so a big nominal number never masquerades as wealth.
 
 | Assumption | Default | Basis |
 |---|---|---|
-| Real return | 5% | conservative ~60/40 real; profile risk shifts it (4% conservative / 6% moderate / 7% aggressive) |
-| Return volatility (σ) | 12% | Monte Carlo dispersion |
-| Inflation | 3% | long-run US CPI ballpark |
-| Income growth | 1% real | conservative |
-| Monte Carlo runs | 5000 | fixed seed 42 → reproducible |
-| Plan-to age | 95 | longevity buffer |
-| Daycare annual | $18,000 | editable per user |
+| nominal_return | 7% | ≈5% real + ~2–3% inflation; by risk tier 5 / 7 / 9 |
+| inflation | 3% | long-run US CPI ballpark |
+| income_growth | 3% nominal | conservative |
+| return_std | 13% | Monte Carlo dispersion |
+| mc_runs / seed | 5000 / 42 | reproducible |
+| plan_to_age | 95 | longevity buffer (retirement only) |
+| daycare_annual | $18,000 | editable per user |
 
-**Sequence-of-returns**: with `market_scenario.mode = "sequence_risk"`, a crash of `depth`
-(default −35%) is forced in retirement year `crash_year` (default 1).
+## Two lenses (never merge them)
+- `target_hit_rate` = P( net worth at `by_age` ≥ `target.amount` ) — **"can I hit the goal?"**
+- `success_rate` = P( never depleted before `plan_to_age` ) — **"won't I run out?"** — only when a `retirement` layer exists
 
-**Success** = the path is never depleted before `plan_to_age`. Success rate = share of Monte
-Carlo runs that succeed.
+## A goal = phases
+- **1 phase** (e.g. home down payment, tuition): `start` + `target`, **no** `retirement` → only `target_hit_rate`.
+- **2 phases** (retirement): add `retirement { annual_spend, plan_to_age }` → also `success_rate`.
 
-## Life events — "time-window parameter overrides"
-Put events in `life_events[]` (shared by all scenarios) or a what-if's `overrides.add_events[]`.
-Each event can inject cashflow, override/delta the year's savings, or override the real return for
-a window.
+## Sequence-of-returns
+`market_scenario.mode = "sequence_risk"` forces a `depth` (default −30%) crash in the first year past `by_age`.
 
+## Life events — time-window parameter overrides
 | type | key fields | effect |
 |---|---|---|
-| `home_purchase` | age, down (or cashflow), annual_payment_delta | −down at age; savings − payment after |
-| `home_sale` | age, proceeds (or cashflow), savings_delta | +proceeds at age; savings + after (mortgage gone) |
-| `child` | born_age, daycare_yrs, daycare_annual (def 18k), college_at (def 18), college_cost | daycare drain in window; college lump |
-| `career_change` | age, savings_delta (or income_delta) | savings ± permanently after age |
-| `startup` / `gap_year` / `sabbatical` | start, end (or age), savings_override (def 0), seed/cashflow | savings paused in window; optional one-off seed cost |
-| `derisk` | start (or age), real_return | return overridden from age (e.g. 0.03) — explicit, replaces ad-hoc r×0.6 |
-| `eldercare` | start, end, annual (or cashflow_annual) | extra drain in window |
-| `windfall` | age, amount | +amount at age (RSU vest / inheritance) |
+| home_purchase / home_sale | age, down/proceeds, annual_payment_delta | one-off ± at age, savings shift after |
+| child | born_age, daycare_yrs, daycare_annual (18k), college_at (18), college_cost | daycare drain + college lump |
+| career_change | age, savings_delta | savings ± permanently after age |
+| startup / gap_year / sabbatical | start, end, savings_override (0), seed | savings paused in window + one-off seed |
+| derisk | start, nominal_return | return overridden from age (e.g. 0.05) |
+| eldercare | start, end, annual | drain during window |
+| windfall | age, amount | one-off ± (RSU / inheritance / wedding) |
 
-**Defaults for the assumed 40%** (state which you used): daycare $18k/yr; derisk-at-retirement →
-real 3%; gap/startup → savings 0 during the window.
+What-ifs can `add_events` or `remove_events: ["home_purchase"]`.
+
+## plan_to_goal — the levers to actually reach the target
+- **save_more** — annual savings needed to hit `min_success`
+- **reach_later / retire_later** — earliest `by_age` that works (pushes the retire date too, if there's a retirement layer)
+- **trim_target** — net worth `min_success`-reachable by `by_age` (shown nominal + today's $)
 
 ## Simplifications (v1, stated for auditability)
-- income growth applied as `savings × (1+g)^years`; events override on top
-- `home_purchase` models the down payment (+ optional `annual_payment_delta`), not full amortization
-- retirement spend is constant real (no go-go / slow-go phases yet)
-- returns are real, so inflation is not modeled per line
+- savings = base × (1 + income_growth)^years; events override on top
+- home_purchase = down payment (+ optional payment delta), not full amortization
+- retirement spend constant-real (inflated yearly, no go-go / slow-go phases)
