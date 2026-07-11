@@ -49,3 +49,17 @@ What-ifs can `add_events` or `remove_events: ["home_purchase"]`.
 - savings = base × (1 + income_growth)^years; events override on top
 - home_purchase = down payment (+ optional payment delta), not full amortization
 - retirement spend constant-real (inflated yearly, no go-go / slow-go phases)
+
+## v1.1 additions (scenarios)
+- **`recurring_cashflow` event** `{ start, end, annual, growth }` — a recurring ± stream inside a window
+  (rental income, side gig, alimony). `cf += annual × (1+growth)^(age−start)`. NOMINAL; negative = a drain.
+- **Scenario-level overrides** — a what-if / template may patch `assumptions` (nominal_return, inflation,
+  return_std) and `market_scenario` (mode, crash_year, depth) for that scenario only; the baseline is
+  untouched. This is what makes `bull_run` / `high_inflation` / `crash_at_goal` possible as what-ifs.
+- **Scenario library** (`scenario_library.json`) — named templates a what-if references by `template`.
+  Relative values (`"+0.025"`, `"*0.8"`, `"-5"`) resolve against the user's OWN baseline field, so a
+  template is market-agnostic; `@start_age` / `@by_age` / `@plan_to_age` (±N) resolve event ages.
+  Resolution happens in `run_plan.py` — the engine only ever sees absolute overrides.
+- Simplification: a scenario's crash (`market_scenario`) shows up in the Monte-Carlo lens
+  (`target_hit_rate`, percentile paths, charts), not in the single deterministic mean-return path — so a
+  stress scenario's `ending_net_worth` echoes the baseline while its hit-rate and chart carry the shock.

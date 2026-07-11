@@ -26,10 +26,12 @@ import sys
 EVENT_TYPES = {
     "home_purchase", "home_sale", "child", "career_change",
     "startup", "gap_year", "sabbatical", "derisk", "eldercare", "windfall",
+    "recurring_cashflow",
 }
 WHATIF_OVERRIDE_KEYS = {
     "annual_savings", "income_growth", "by_age", "add_events", "remove_events",
     "retirement", "plan_to_age", "annual_spend", "runs",
+    "assumptions", "market_scenario",
 }
 
 errors: list[str] = []
@@ -50,6 +52,56 @@ def _is_num(x) -> bool:
 
 def _is_int(x) -> bool:
     return isinstance(x, int) and not isinstance(x, bool)
+
+
+def _is_delta(v) -> bool:
+    """A '+x' / '-x' / '*x' relative-delta string (only valid inside a what-if template/override)."""
+    if not isinstance(v, str) or v[:1] not in ("+", "-", "*"):
+        return False
+    try:
+        float(v[1:])
+        return True
+    except ValueError:
+        return False
+
+
+def _check_assumptions_block(a, path: str, allow_delta: bool) -> None:
+    """Validate an `assumptions` block. Top-level must be absolute numbers; a what-if override may also
+    use '+x'/'-x'/'*x' deltas (the resolver applies them to the baseline). A bad value is an ERROR
+    (not just a range WARN) because the engine does `a.update(...)` then arithmetic on it — a string crashes."""
+    if not isinstance(a, dict):
+        err(f"'{path}' must be an object.")
+        return
+    ranges = {"nominal_return": (0, 0.5), "inflation": (-0.1, 0.5)}
+    for k in ("nominal_return", "inflation", "return_std", "income_growth"):
+        if k not in a:
+            continue
+        v = a[k]
+        if _is_num(v):
+            if k == "return_std" and v < 0:
+                err(f"{path}.return_std must be non-negative.")
+            elif k in ranges and not (ranges[k][0] < v < ranges[k][1]):
+                warn(f"{path}.{k}={v!r} looks off (expected a fraction like 0.07 / 0.03).")
+        elif allow_delta and _is_delta(v):
+            continue
+        else:
+            tail = " or a '+x'/'-x'/'*x' delta" if allow_delta else ""
+            err(f"{path}.{k}={v!r} must be a number{tail} (a string breaks the engine's math).")
+
+
+def _check_market_block(mkt, path: str) -> None:
+    """Validate a `market_scenario` block (top-level or what-if override). Values are always absolute."""
+    if not isinstance(mkt, dict):
+        err(f"'{path}' must be an object.")
+        return
+    mode = mkt.get("mode")
+    if mode is not None and mode not in ("monte_carlo", "sequence_risk"):
+        err(f"{path}.mode must be 'monte_carlo' or 'sequence_risk'; got {mode!r}.")
+    for k in ("runs", "crash_year", "depth", "seed"):
+        if k in mkt and not _is_num(mkt[k]):
+            err(f"{path}.{k} must be a number, got {mkt[k]!r} (a string crashes monte_carlo).")
+    if _is_num(mkt.get("runs")) and mkt["runs"] < 1:
+        err(f"{path}.runs must be a positive integer.")
 
 
 def _check_money(path: str, val) -> None:
@@ -73,6 +125,38 @@ def _check_age(path: str, val) -> None:
 
 def _has_any(e: dict, *keys: str) -> bool:
     return any(k in e for k in keys)
+
+
+_LIB = None
+_LIB_LOADED = False
+
+
+def _load_library():
+    """Scenario library that sits next to this script in the bundle (../references/)."""
+    global _LIB, _LIB_LOADED
+    if _LIB_LOADED:
+        return _LIB
+    _LIB_LOADED = True
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "references", "scenario_library.json")
+    try:
+        with open(p, encoding="utf-8") as f:
+            _LIB = json.load(f)
+    except Exception:  # noqa: BLE001
+        _LIB = None
+    return _LIB
+
+
+def _check_template(name, wp: str) -> None:
+    if not isinstance(name, str):
+        err(f"{wp}.template must be a string.")
+        return
+    lib = _load_library()
+    if lib is None:
+        warn(f"{wp}.template={name!r} — scenario_library.json not found next to lint; cannot verify the name.")
+        return
+    if name not in lib:
+        known = ", ".join(k for k in lib if not k.startswith("_"))
+        err(f"{wp}.template={name!r} is not in scenario_library.json. Known: {known}.")
 
 
 def check(spec: dict) -> None:
@@ -118,20 +202,9 @@ def check(spec: dict) -> None:
             if "income_growth" in contrib and not _is_num(contrib["income_growth"]):
                 err("contributions.income_growth must be a number (e.g. 0.03).")
 
-    # --- assumptions (optional; sanity ranges are warnings, not blocks) ---
-    a = spec.get("assumptions", {})
-    if a and not isinstance(a, dict):
-        err("'assumptions' must be an object.")
-    elif isinstance(a, dict):
-        nr = a.get("nominal_return")
-        if nr is not None and (not _is_num(nr) or not (0 < nr < 0.5)):
-            warn(f"assumptions.nominal_return={nr!r} looks off (expected a fraction like 0.07).")
-        inf = a.get("inflation")
-        if inf is not None and (not _is_num(inf) or not (-0.1 < inf < 0.5)):
-            warn(f"assumptions.inflation={inf!r} looks off (expected a fraction like 0.03).")
-        rs = a.get("return_std")
-        if rs is not None and (not _is_num(rs) or rs < 0):
-            err("assumptions.return_std must be a non-negative number.")
+    # --- assumptions (optional; top-level must be absolute numbers, no deltas) ---
+    if "assumptions" in spec:
+        _check_assumptions_block(spec["assumptions"], "assumptions", allow_delta=False)
 
     # --- retirement (optional; only for retire-type goals) ---
     ret = spec.get("retirement")
@@ -146,16 +219,8 @@ def check(spec: dict) -> None:
                 err(f"retirement.plan_to_age ({pta}) must be greater than target.by_age ({target.get('by_age')}).")
 
     # --- market_scenario (optional) ---
-    mkt = spec.get("market_scenario", {})
-    if mkt:
-        if not isinstance(mkt, dict):
-            err("'market_scenario' must be an object.")
-        else:
-            mode = mkt.get("mode")
-            if mode is not None and mode not in ("monte_carlo", "sequence_risk"):
-                err(f"market_scenario.mode must be 'monte_carlo' or 'sequence_risk'; got {mode!r}.")
-            if "runs" in mkt and (not _is_num(mkt["runs"]) or mkt["runs"] < 1):
-                err("market_scenario.runs must be a positive integer.")
+    if "market_scenario" in spec:
+        _check_market_block(spec["market_scenario"], "market_scenario")
 
     # --- life_events ---
     _check_events(spec.get("life_events", []), "life_events")
@@ -170,37 +235,52 @@ def check(spec: dict) -> None:
 
 
 def _check_whatif(w, wp: str, start: dict, ret) -> None:
-    if not isinstance(w, dict) or "name" not in w or "overrides" not in w:
-        err(f"{wp} must be an object with 'name' and 'overrides'.")
+    if not isinstance(w, dict):
+        err(f"{wp} must be an object.")
         return
+    template = w.get("template")
+    if template is None and "overrides" not in w:
+        err(f"{wp} must have 'overrides' or a 'template'.")
+        return
+    if template is not None:
+        _check_template(template, wp)
     name = w.get("name")
-    if not isinstance(name, str) or not name.isascii():
+    if name is None and template is None:
+        err(f"{wp} must have a 'name'.")
+    elif name is not None and (not isinstance(name, str) or not name.isascii()):
         err(f"{wp}.name must be a short ASCII/Latin slug (e.g. no_house, retire_45); "
             f"non-ASCII names render as tofu boxes in the chart legend.")
-    ov = w["overrides"]
+    ov = w.get("overrides", {})
     if not isinstance(ov, dict):
         err(f"{wp}.overrides must be an object.")
         return
     for k in ov:
         if k not in WHATIF_OVERRIDE_KEYS:
             warn(f"{wp}.overrides has unrecognized key {k!r} (engine will ignore it).")
-    # Bound-check override scalars the same way the top-level fields are checked,
-    # so an absurd what-if (e.g. by_age <= start.age) fails loud instead of
-    # producing a silently-plausible engine number.
-    if "by_age" in ov:
+    # Bound-check override scalars. A what-if override value may be ABSOLUTE or a '+x'/'-x'/'*x' delta
+    # (scenarios.md documents inline tweaks like annual_savings: "*1.2"); the resolver handles deltas and
+    # _guard_resolved bound-checks the resolved by_age/plan_to_age, so here we only reject outright-invalid
+    # values and can bound-check only when the override is already an absolute number.
+    if "by_age" in ov and not _is_delta(ov["by_age"]):
         _check_age(f"{wp}.overrides.by_age", ov["by_age"])
         if _is_int(ov["by_age"]) and _is_int(start.get("age")) and ov["by_age"] <= start["age"]:
             err(f"{wp}.overrides.by_age ({ov['by_age']}) must be greater than start.age ({start.get('age')}).")
-    if "plan_to_age" in ov:
+    if "plan_to_age" in ov and not _is_delta(ov["plan_to_age"]):
         _check_age(f"{wp}.overrides.plan_to_age", ov["plan_to_age"])
-    if "annual_savings" in ov:
+    if "annual_savings" in ov and not _is_delta(ov["annual_savings"]):
         _check_money(f"{wp}.overrides.annual_savings", ov["annual_savings"])
-    if "annual_spend" in ov:
+    if "annual_spend" in ov and not _is_delta(ov["annual_spend"]):
         _check_money(f"{wp}.overrides.annual_spend", ov["annual_spend"])
+    if "income_growth" in ov and not _is_delta(ov["income_growth"]) and not _is_num(ov["income_growth"]):
+        err(f"{wp}.overrides.income_growth must be a number or a '+x'/'-x'/'*x' delta.")
     if "runs" in ov and (not _is_num(ov["runs"]) or ov["runs"] < 1):
         err(f"{wp}.overrides.runs must be a positive integer.")
     if "remove_events" in ov and not isinstance(ov["remove_events"], list):
         err(f"{wp}.overrides.remove_events must be a list of event-type strings.")
+    if "assumptions" in ov:
+        _check_assumptions_block(ov["assumptions"], f"{wp}.overrides.assumptions", allow_delta=True)
+    if "market_scenario" in ov:
+        _check_market_block(ov["market_scenario"], f"{wp}.overrides.market_scenario")
     _check_events(ov.get("add_events", []), f"{wp}.overrides.add_events")
 
 
@@ -247,6 +327,11 @@ def _check_events(events, path: str) -> None:
                 err(f"{ep} (type windfall) is missing required field 'age'.")
             if not _has_any(e, "amount", "cashflow"):
                 err(f"{ep} (type windfall) needs 'amount' (or 'cashflow').")
+        elif t == "recurring_cashflow":
+            if "start" not in e:
+                err(f"{ep} (type recurring_cashflow) is missing required field 'start'.")
+            if "end" not in e:
+                err(f"{ep} (type recurring_cashflow) is missing required field 'end'.")
         # No monetary/age field may be a string.
         for k, v in e.items():
             if k == "type":

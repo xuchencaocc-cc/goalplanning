@@ -1,5 +1,5 @@
 {
-  "_note": "A goal = start -> target. Add 'retirement' ONLY for retire-type goals (adds a spend-down phase + no_deplete lens). For a house/education goal, omit 'retirement' entirely. Amounts are NOMINAL; retirement.annual_spend is in today's $. Example below is a retirement goal.",
+  "_note": "A goal = start -> target. Add 'retirement' ONLY for retire-type goals (adds a spend-down phase + no_deplete lens). For a house/education goal, omit 'retirement' entirely. Amounts are NOMINAL; retirement.annual_spend is in today's $. Example below is a retirement goal. What-ifs may name a pre-built scenario by `template` (resolved from scenario_library.json) instead of hand-written `overrides`; see the last whatif. A what-if's `overrides` may also patch `assumptions` and `market_scenario`, not just savings/by_age.",
 
   "start": { "age": 26, "assets": 400000 },
   "target": { "amount": 10000000, "by_age": 40, "label": "retire at 40", "min_success": 0.9 },
@@ -10,11 +10,14 @@
   "life_events": [
     { "type": "windfall", "age": 30, "amount": -200000 },
     { "type": "child", "born_age": 32, "daycare_yrs": 6, "daycare_annual": 50000 },
-    { "type": "home_purchase", "age": 35, "down": 1000000 }
+    { "type": "home_purchase", "age": 35, "down": 1000000 },
+    { "type": "recurring_cashflow", "start": 45, "end": 60, "annual": 24000, "growth": 0.02 }
   ],
   "whatifs": [
     { "name": "no_house", "overrides": { "remove_events": ["home_purchase"] } },
-    { "name": "retire_45", "overrides": { "by_age": 45 } }
+    { "name": "retire_45", "overrides": { "by_age": 45 } },
+    { "name": "upside", "template": "bull_run" },
+    { "template": "crash_at_goal" }
   ],
 
   "_house_example": {

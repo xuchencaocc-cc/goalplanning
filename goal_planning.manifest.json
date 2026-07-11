@@ -1,8 +1,8 @@
 {
   "name": "goal_planning",
-  "version": "1.0",
+  "version": "1.1",
   "supersedes": ["goal_planning_intake", "goal_planning_run", "goal-planning (single-file v6)"],
-  "skill_zip_url": "https://raw.githubusercontent.com/xuchencaocc-cc/goalplanning/main/goal_planning_v1_0.zip",
+  "skill_zip_url": "https://raw.githubusercontent.com/xuchencaocc-cc/goalplanning/main/goal_planning_v1_1.zip",
   "sandbox_entry": "main agent runs Phase A inline, then transfer_to_agent('sandbox_runner') once the recap is confirmed (skill is NOT execution_mode:sandbox — that would auto-transfer on load and kill Phase A)",
   "entry": "scripts/run_plan.py",
   "lint": "scripts/lint_spec.py",
@@ -13,8 +13,17 @@
   "inputs": {
     "spec": "./spec.json (assembled from the confirmed recap)",
     "schema_doc": "references/spec_schema.json (worked example + notes)",
-    "model_doc": "references/assumptions.md (money model + defaults)"
+    "model_doc": "references/assumptions.md (money model + defaults)",
+    "scenario_library": "references/scenario_library.json (named what-if templates; resolved by run_plan.py)"
   },
+  "references_langfuse_only": {
+    "scenarios.md": "Phase-A playbook for choosing what-ifs (main agent loads via load_skill_resource; NOT read by the sandbox)"
+  },
+  "v1_1_changes": [
+    "recurring_cashflow life-event",
+    "scenario-level assumptions + market_scenario overrides",
+    "scenario_library.json named templates (relative/anchor resolution in run_plan.py)"
+  ],
   "outputs": ["result.json", "fan_baseline.png", "compare.png"],
   "deps": { "python": ">=3.10", "pip": ["numpy", "matplotlib"] },
   "forbid_fallback": true,

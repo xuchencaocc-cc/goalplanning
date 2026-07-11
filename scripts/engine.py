@@ -26,10 +26,16 @@ DEFAULTS = {
 }
 
 
-def assumptions(spec):
+def assumptions(spec, scenario=None):
+    """Base assumptions, optionally patched by a scenario's own `assumptions` block
+    (so a what-if / scenario-library template can raise inflation, lower returns, etc.).
+    Absent scenario overrides -> identical to the pre-v1.1 base behavior."""
     a = dict(DEFAULTS)
     a.update(spec.get("assumptions", {}))
-    a["seed"] = spec.get("market_scenario", {}).get("seed", a["seed"])
+    if scenario:
+        a.update(scenario.get("assumptions", {}))
+    mkt = {**spec.get("market_scenario", {}), **((scenario or {}).get("market_scenario", {}))}
+    a["seed"] = mkt.get("seed", a["seed"])
     return a
 
 
@@ -67,6 +73,10 @@ def apply_events(events, age, base_savings, base_return, a):
             if s is not None and en is not None and s <= age <= en: cf += e.get("cashflow_annual", -e.get("annual", 0))
         elif t == "windfall":
             if age == e.get("age"): cf += e.get("amount", e.get("cashflow", 0))
+        elif t == "recurring_cashflow":
+            s, en = e.get("start"), e.get("end")
+            if s is not None and en is not None and s <= age <= en:
+                cf += e.get("annual", 0.0) * ((1 + e.get("growth", 0.0)) ** (age - s))
     return cf, savings, ret
 
 
@@ -78,7 +88,7 @@ def _events_for(spec, scenario):
 
 def project(spec, scenario, returns=None):
     """One path: accumulate to target.by_age, then (if retirement) spend to plan_to_age."""
-    a = assumptions(spec)
+    a = assumptions(spec, scenario)
     start, target = spec["start"], spec["target"]
     contrib = spec.get("contributions", {})
     ret_layer = scenario.get("retirement", spec.get("retirement"))
@@ -111,7 +121,7 @@ def project(spec, scenario, returns=None):
 
 
 def monte_carlo(spec, scenario):
-    a = assumptions(spec)
+    a = assumptions(spec, scenario)
     rng = np.random.default_rng(a["seed"])
     start_age = spec["start"]["age"]; target = spec["target"]
     ret_layer = scenario.get("retirement", spec.get("retirement"))
@@ -119,7 +129,7 @@ def monte_carlo(spec, scenario):
     end = (scenario.get("plan_to_age", (ret_layer or {}).get("plan_to_age", a["plan_to_age"]))
            if ret_layer else by_age)
     years = end - start_age + 1
-    mc = spec.get("market_scenario", {})
+    mc = {**spec.get("market_scenario", {}), **scenario.get("market_scenario", {})}
     runs = int(scenario.get("runs", mc.get("runs", a["mc_runs"])))
     grid = np.zeros((runs, years)); successes = 0
     for k in range(runs):
@@ -182,19 +192,19 @@ def plan_to_goal(spec):
 
 def run(spec):
     a = assumptions(spec); start_age = spec["start"]["age"]
-    has_ret = bool(spec.get("retirement"))
-    end = (spec["retirement"].get("plan_to_age", a["plan_to_age"]) if has_ret else spec["target"]["by_age"])
     scenarios = {"baseline": {}}
     for w in spec.get("whatifs", []):
         scenarios[w["name"]] = dict(w.get("overrides", {}))
     results = {}
     for name, sc in scenarios.items():
+        a_sc = assumptions(spec, sc)          # scenario-aware (inflation may be overridden)
         det, sf = project(spec, sc)
         mc = monte_carlo(spec, sc)
         end_nom = det[-1][1]
+        end_age = det[-1][0]                  # this scenario's actual final age — no drift from by_age/plan_to_age overrides
         results[name] = {
             "ending_net_worth": end_nom,
-            "ending_net_worth_today": round(real(end_nom, end - start_age, a["inflation"])),
+            "ending_net_worth_today": round(real(end_nom, end_age - start_age, a_sc["inflation"])),
             "target_hit_rate": round(mc["target_hit_rate"], 3),
             "success_rate": round(mc["success_rate"], 3) if mc["success_rate"] is not None else None,
             "shortfall_age": sf,

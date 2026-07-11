@@ -1,0 +1,17 @@
+{
+  "_note": "Named scenario templates for goal_planning. A what-if references one by `template` (e.g. { \"name\": \"stress\", \"template\": \"crash_at_goal\" }). run_plan.py resolves each override value against the CONFIRMED baseline spec and then runs it like any what-if: a NUMBER is absolute; a STRING starting with + - or * is a delta from the matching baseline field (so `nominal_return: \"+0.025\"` = the user's own return + 2.5pts, market-agnostic); an @anchor (@start_age / @by_age / @plan_to_age, optionally +/-N) resolves to an age. Balanced by design — an upside, a baseline, and a downside give the user a RANGE, not a wall of crashes. Amount-bearing scenarios (a specific windfall, rental income) are NOT templates — the agent adds the raw windfall / recurring_cashflow event with the user's real number (see references scenarios.md).",
+
+  "bull_run":       { "label": "markets do well",           "band": "upside",   "overrides": { "assumptions": { "nominal_return": "+0.025" } } },
+  "save_more_20":   { "label": "save 20% more",             "band": "upside",   "overrides": { "annual_savings": "*1.2" } },
+  "pull_forward_5": { "label": "hit it 5 years sooner",     "band": "upside",   "overrides": { "by_age": "-5" } },
+
+  "crash_at_goal":  { "label": "a crash right at the goal", "band": "downside", "overrides": { "market_scenario": { "mode": "sequence_risk", "crash_year": 1, "depth": -0.35 } } },
+  "gfc_2008":       { "label": "a 2008-style -37% crash",   "band": "downside", "overrides": { "market_scenario": { "mode": "sequence_risk", "crash_year": 1, "depth": -0.37 } } },
+  "high_inflation": { "label": "sustained high inflation",  "band": "downside", "overrides": { "assumptions": { "inflation": "+0.03", "nominal_return": "+0.01" } } },
+  "lost_decade":    { "label": "a decade of weak returns",  "band": "downside", "overrides": { "assumptions": { "nominal_return": 0.02 } } },
+  "job_loss_2yr":   { "label": "two years of no saving",    "band": "downside", "overrides": { "add_events": [ { "type": "gap_year", "start": "@start_age", "end": "@start_age+1", "savings_override": 0 } ] } },
+  "save_less_20":   { "label": "save 20% less",             "band": "downside", "overrides": { "annual_savings": "*0.8" } },
+
+  "push_back_5":    { "label": "give it 5 more years",      "band": "neutral",  "overrides": { "by_age": "+5" } },
+  "longevity_100":  { "label": "plan to age 100",          "band": "neutral",  "overrides": { "plan_to_age": 100 } }
+}

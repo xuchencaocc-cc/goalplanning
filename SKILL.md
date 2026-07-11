@@ -72,8 +72,17 @@ becomes a chart legend label and non-ASCII renders as blank boxes.
 | derisk | start, nominal_return | return overridden from age (e.g. 0.05) |
 | eldercare | start, end, annual | drain during window |
 | windfall | age, amount | one-off ± (RSU / inheritance / wedding) |
+| recurring_cashflow | start, end, annual, growth | a recurring ± stream (rental income, side gig, alimony) |
 
-For window events (startup / gap_year / sabbatical / eldercare) always give **both** `start` and `end`.
+For window events (startup / gap_year / sabbatical / eldercare / recurring_cashflow) always give **both** `start` and `end`.
+
+**What-ifs — use the scenario library.** A what-if can name a pre-built scenario by `template` instead of
+hand-encoding overrides (they resolve against the user's own baseline, so they work in any market):
+`whatifs: [ { "name": "upside", "template": "bull_run" }, { "template": "crash_at_goal" } ]`. **Default
+panel** (keep it balanced — a range, not a wall of crashes): baseline always runs; add `bull_run` +
+`crash_at_goal` (retirement: also `longevity_100`). For choosing scenarios, richer situations (a
+windfall, rental income, a specific worry), and the full template list, **load `references/scenarios.md`**.
+A healthy plan → lead with that + the upside; don't manufacture alarm.
 
 **Defaults for the assumed 40%** (state which you used, and which market they're for): **US baseline** =
 nominal return 7% (5/7/9 by risk), inflation 3%, income growth 3%, daycare 18k. **Adjust to the user's
@@ -111,7 +120,7 @@ user, say so plainly and stop — do NOT hand-compute the plan in chat.)
 > The confirmed recap above is your ONLY source — you cannot see the injected profile or tool results here.
 > The engine is authoritative and lives in a pinned public bundle; download and run it, never rewrite or
 > hand-compute it.
-> 1. `curl -fsSL -o ./skill.zip "https://raw.githubusercontent.com/xuchencaocc-cc/goalplanning/main/goal_planning_v1_0.zip"`
+> 1. `curl -fsSL -o ./skill.zip "https://raw.githubusercontent.com/xuchencaocc-cc/goalplanning/main/goal_planning_v1_1.zip"`
 > 2. `rm -rf ./skill && mkdir ./skill && unzip -o ./skill.zip -d ./skill`
 > 3. Read `./skill/references/spec_schema.json` (worked example + notes) and `./skill/references/assumptions.md`
 >    (money model + defaults). Assemble the confirmed recap above into `./spec.json` — copy every number
