@@ -1,32 +1,46 @@
 ---
 name: goal_planning
-description: Plan ANY financial goal — buy a house, retire, fund education, hit a net-worth number — by
-  modeling start → target with what-ifs, sequence-of-returns risk, and Monte Carlo, then giving concrete
-  levers to actually reach it. Trigger on "can I afford a house by X", "can I retire at Y", "how much to
-  save for Z", "am I on track for <goal>", "what if I buy / save more / the market dips". Spending habits
-  → spending_insight; current-state risk → cashflow_health.
+description: >-
+  Plan ANY financial goal — buy a house, retire, fund education, hit a net-worth number — by modeling
+  start → target with what-ifs, sequence-of-returns risk, and Monte Carlo, then giving concrete levers to
+  reach it. Trigger on "can I afford a house by X", "can I retire at Y", "how much to save for Z", "am I
+  on track for <goal>", "what if I buy / save more / the market dips". Spending habits → spending_insight;
+  current-state risk → cashflow_health.
+  ⚠️ TWO PHASES, IN ORDER. This skill loads INLINE and Phase A runs IN CHAT: read the injected profile,
+  call Plaid tools, ask the user for what's missing, set assumptions, and restate everything as a recap
+  the user confirms. ONLY after the recap is confirmed do you `transfer_to_agent("sandbox_runner")` to run
+  the deterministic engine (Phase B) in the sandbox. The sandbox canNOT see the profile / tool results and
+  canNOT ask the user — it inherits ONLY the conversation text, so the confirmed recap is the only thing
+  that crosses into it. Never transfer before the recap is confirmed.
 metadata:
-  execution_mode: sandbox
+  visible_to_agents:
+    - user_agent_official
 ---
 
 # Goal Planning
 
-A goal is just **[start] → accumulate → [target]** (an amount by an age). Retirement adds a second phase:
+A goal is **[start] → accumulate → [target]** (an amount by an age). Retirement adds a second phase —
 **spend down** after the target. Buy-a-house = 1 phase; retirement = 2. Same engine.
 
-Two phases of work, and the sandbox is one-way (once inside you can't ask the user). In chat: build a
-complete scenario_spec. Then enter the sandbox to download the engine and compute. Multi-round = each
-round is one closed round-trip.
+**Two phases, and the order is load-bearing.** This skill is shown to you INLINE — you read Phase A here
+and run it **in chat first** (gather + recap + confirm). The engine runs in a **sandbox** you enter by
+calling `transfer_to_agent("sandbox_runner")`, and that sandbox is one-way: it can't see the profile/tools
+or come back to ask. So finish Phase A and get the recap confirmed BEFORE you transfer — the confirmed
+recap is the ONLY thing that crosses into the sandbox.
 
-## Phase A — in chat: build the spec
+---
+
+## Phase A — IN CHAT (you are the main agent; do this before transferring)
 
 ### Step 1 — name the goal, then build the story (extract → ask → assume → confirm)
 First pin **what goal**: home down payment / retirement / education / FIRE / a net-worth number. That
 decides whether there's a `retirement` (spend-down) layer.
 
 Then 30/40/70 — the user gives ~30%, you extend to a coherent ~70% they react to (never a form):
-- **Extract** — injected finance profile (age, income, household, goals, risk) + Plaid tools
-  (get_net_worth, get_savings_rate) for hard numbers.
+- **Extract** — injected finance profile (age, income, household, goals, risk) + `query_personal_database`
+  ("my net worth", "my savings rate over the last 3 months") for hard numbers. `query_personal_database`
+  is US-Plaid only; if it returns nothing (non-US / unconnected), take the numbers from profile/memory
+  or **ask the user** and mark them "(as you told me)".
 - **Ask** — only what you can't infer: the target (amount + by when) and any big plans on their mind.
 - **Assume → 70%** — fill the rest from profile (life events, contributions, market assumptions). The
   assumed 40% must be **coherent** (follows from profile) and **visible** (mark "(assumed)" so they can
@@ -34,14 +48,18 @@ Then 30/40/70 — the user gives ~30%, you extend to a coherent ~70% they react 
 - **Confirm → iterate** — narrate the 70% back in one paragraph; OK → assemble spec; not OK → re-ask only that piece.
 
 ### Step 2 — assemble the scenario_spec (built here; the sandbox only runs it)
-Three blocks (everything you need is below — don't rely on the sandbox files):
+Three blocks (everything the engine needs):
 - `start`: { age, assets }
 - `target`: { amount, by_age, label, min_success (0.9) }            ← the goal
 - `contributions`: { annual_savings, income_growth (3%) }
-- `assumptions`: { nominal_return (7%), inflation (3%), return_std (13%) }   ← NOMINAL + explicit inflation
+- `assumptions`: { nominal_return, inflation, return_std }   ← NOMINAL + explicit inflation; **defaults below are US — adjust to the user's market**
 - `retirement`: { annual_spend (today's $), plan_to_age (95) }      ← OPTIONAL; only for retire-type goals
 - `market_scenario`: { mode: "monte_carlo" | "sequence_risk", runs (5000), seed (42) }
 - `life_events`: [ ... ]  ·  `whatifs`: [ { name, overrides:{ annual_savings | by_age | add_events | remove_events } } ]
+
+Ages (`start.age`, `target.by_age`, `retirement.plan_to_age`, any `by_age` override) must be **whole
+integers**. Every what-if `name` must be a short **ASCII/Latin slug** (e.g. `no_house`, `retire_45`) — it
+becomes a chart legend label and non-ASCII renders as blank boxes.
 
 **Life-event vocabulary** (pick types, fill NOMINAL params):
 
@@ -55,16 +73,65 @@ Three blocks (everything you need is below — don't rely on the sandbox files):
 | eldercare | start, end, annual | drain during window |
 | windfall | age, amount | one-off ± (RSU / inheritance / wedding) |
 
-**Defaults for the assumed 40%** (state which you used): nominal return 7% (5/7/9 by risk), inflation 3%,
-income growth 3%, daycare 18k. Spec amounts are NOMINAL; retirement spend is today's $ (engine inflates it).
+For window events (startup / gap_year / sabbatical / eldercare) always give **both** `start` and `end`.
 
-## Phase B — in the sandbox: download the engine, then run it
-The authoritative engine is in references/ — **download and run it; never rewrite it.**
-1. `curl -fsSL -o /tmp/gp_refs.zip "https://raw.githubusercontent.com/xuchencaocc-cc/goalplanning/main/goal_planning_refs.zip" && unzip -o /tmp/gp_refs.zip -d ./references`
-2. Write the spec to ./spec.json
-3. `python references/engine.py ./spec.json` → per-scenario hit_target / no_deplete + a **plan** (levers)
-4. Plot with references/plots.py → PNGs, upload them.
-If download fails or engine.py is missing, say so and STOP — never fabricate an engine or hand-compute.
+**Defaults for the assumed 40%** (state which you used, and which market they're for): **US baseline** =
+nominal return 7% (5/7/9 by risk), inflation 3%, income growth 3%, daycare 18k. **Adjust to the user's
+market** — high-inflation markets (e.g. BR ~4–5% inflation, higher nominal & rates) and near-zero
+markets (e.g. JP) need different return/inflation; if you don't have a local figure, ask or use a
+sensible local default and mark it "(assumed, <market>)". Retirement accounts likewise: US 401k/IRA/Roth,
+JP NISA/iDeCo, SG CPF/SRS, BR PGBL/VGBL, MY EPF, MX Afore — use the local one. Spec amounts are NOMINAL;
+retirement spend is today's money (engine inflates it). Currency is the user's, not necessarily USD.
+
+### Step 3 — restate EVERYTHING as a recap, get confirmation, THEN transfer
+The sandbox inherits ONLY the conversation Q&A — **NOT** your injected profile, **NOT** function-call /
+tool results. So recap, in **plain user-friendly prose** (a short readable summary, NOT a JSON dump), for
+the user to confirm. This recap is the ONLY channel the numbers cross into the sandbox on:
+- **every input + where it came from** — start age & assets, target, contributions, income, life events
+  (note which came from profile / tools / the user / assumed);
+- **every assumption** (returns, inflation, the assumed-40%, the market), flagged as assumptions;
+- **which scenarios** will run — baseline + each what-if, one line each.
+Build the scenario_spec JSON internally, but show the USER readable prose, never raw JSON.
+
+---
+
+## R. Hand-off contract — Phase A → sandbox
+
+**Gate — ALL must be true before you `transfer_to_agent("sandbox_runner")`:**
+- [ ] the user explicitly confirmed the recap
+- [ ] the full recap (every input + assumption + scenario) is present as plain text in the conversation
+- [ ] market / currency / mode (`monte_carlo` | `sequence_risk`) are decided and in the recap
+- [ ] ages are whole integers and what-if names are ASCII slugs
+- [ ] the confirm turn was text-only; transfer on the NEXT turn
+
+When the gate passes, call `transfer_to_agent("sandbox_runner")`. (If the sandbox is unavailable for this
+user, say so plainly and stop — do NOT hand-compute the plan in chat.)
+
+**Sandbox task (you are now `sandbox_runner`) — do EXACTLY this and nothing else:**
+> The confirmed recap above is your ONLY source — you cannot see the injected profile or tool results here.
+> The engine is authoritative and lives in a pinned public bundle; download and run it, never rewrite or
+> hand-compute it.
+> 1. `curl -fsSL -o ./skill.zip "https://raw.githubusercontent.com/xuchencaocc-cc/goalplanning/main/goal_planning_v1_0.zip"`
+> 2. `rm -rf ./skill && mkdir ./skill && unzip -o ./skill.zip -d ./skill`
+> 3. Read `./skill/references/spec_schema.json` (worked example + notes) and `./skill/references/assumptions.md`
+>    (money model + defaults). Assemble the confirmed recap above into `./spec.json` — copy every number
+>    VERBATIM from the recap; invent nothing, change nothing. If the recap is missing or incomplete, STOP
+>    and say intake (Phase A) must run first — do not fabricate numbers.
+> 4. `python3 ./skill/scripts/lint_spec.py ./spec.json` — must exit 0. On any `ERROR`, fix the spec so it
+>    matches the confirmed recap (if a *number* would have to change, STOP and re-confirm with the user).
+> 5. `python3 ./skill/scripts/run_plan.py ./spec.json --outdir .` → writes `result.json`,
+>    `fan_baseline.png`, `compare.png`.
+> 6. `upload_file` the two PNGs; write the reply from `result.json` (two lenses, two money labels — see Output).
+>
+> **FORBIDDEN:** writing your own engine / projection / Monte-Carlo, hand-computing any figure, editing
+> `engine.py` or `plots.py`, swapping in a different lib for the compute path, or skipping `lint_spec.py` /
+> `run_plan.py`. A wrong-method number is worse than an honest error. (Installing the engine's OWN deps —
+> `numpy`, `matplotlib` — if they are genuinely missing is fine; substituting them is not.)
+>
+> **Fail loud:** if the `curl` fails (non-200), `run_plan.py` is missing, or the engine errors → STOP and
+> report the error verbatim. Never fabricate an engine, hand-compute, or invent numbers.
+
+---
 
 ## Output — give the plan, in two lenses, both labeled
 Lead with **whether the goal is on track**, then the **plan to reach it** (the engine's levers) — not just a verdict.
@@ -72,14 +139,14 @@ Lead with **whether the goal is on track**, then the **plan to reach it** (the e
   (`success_rate`, retirement only). State which is which.
 - **Two money labels, always**: every net-worth figure as nominal AND today's purchasing power
   ("10M at 40 ≈ 6.6M today"). A big nominal number is not wealth.
-- **If off-track → levers** (all from the engine's plan): save more → $X/yr · reach/retire later → age Y ·
+- **If off-track → levers** (all from the engine's `plan`): save more → $X/yr · reach/retire later → age Y ·
   trim target → $Z. Present the 2–3 that fit this person, let them pick.
 - Numbers come only from the engine. These are measured planning levers (save / date / target / risk),
-  not specific product or investment picks.
+  not specific product or investment picks. Currency is the user's, as set in the recap.
 
 ## Hard rule (Evidence)
-Every figure = engine output or an injected-profile fact. You never project/compound/percentage/diff
-yourself — the engine does. Always state the assumptions used.
+Every figure = engine output (`result.json`) or an injected-profile fact stated in the recap. You never
+project/compound/percentage/diff yourself — the engine does. Always state the assumptions used.
 
 ## Boundaries
 Read-only, educational, under the system prompt's compliance/disclaimer rules — projections are

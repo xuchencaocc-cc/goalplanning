@@ -1,0 +1,30 @@
+{
+  "name": "goal_planning",
+  "version": "1.0",
+  "supersedes": ["goal_planning_intake", "goal_planning_run", "goal-planning (single-file v6)"],
+  "skill_zip_url": "https://raw.githubusercontent.com/xuchencaocc-cc/goalplanning/main/goal_planning_v1_0.zip",
+  "sandbox_entry": "main agent runs Phase A inline, then transfer_to_agent('sandbox_runner') once the recap is confirmed (skill is NOT execution_mode:sandbox — that would auto-transfer on load and kill Phase A)",
+  "entry": "scripts/run_plan.py",
+  "lint": "scripts/lint_spec.py",
+  "commands": {
+    "lint": "python3 ./skill/scripts/lint_spec.py ./spec.json  (run BEFORE run_plan; exit 0 required)",
+    "run": "python3 ./skill/scripts/run_plan.py ./spec.json --outdir ."
+  },
+  "inputs": {
+    "spec": "./spec.json (assembled from the confirmed recap)",
+    "schema_doc": "references/spec_schema.json (worked example + notes)",
+    "model_doc": "references/assumptions.md (money model + defaults)"
+  },
+  "outputs": ["result.json", "fan_baseline.png", "compare.png"],
+  "deps": { "python": ">=3.10", "pip": ["numpy", "matplotlib"] },
+  "forbid_fallback": true,
+  "forbidden": [
+    "writing your own engine / projection / Monte-Carlo",
+    "hand-computing any figure",
+    "editing engine.py or plots.py",
+    "substituting a different lib for the compute path",
+    "skipping run_plan.py or lint_spec.py"
+  ],
+  "fail_loud": true,
+  "determinism": "fixed seed in spec.market_scenario.seed (default 42); same spec -> same output"
+}
