@@ -2,16 +2,16 @@
 name: goal_planning
 description: >-
   Plan ANY financial goal — buy a house, retire, fund education, hit a net-worth number — by modeling
-  start → target with what-ifs, sequence-of-returns risk, and Monte Carlo, then giving concrete levers to
-  reach it. Trigger on "can I afford a house by X", "can I retire at Y", "how much to save for Z", "am I
-  on track for <goal>", "what if I buy / save more / the market dips". Spending habits → spending_insight;
+  start → target with what-ifs, sequence risk, and Monte Carlo, then concrete levers to reach it.
+  Trigger on "can I afford a house by X", "can I retire at Y", "how much to save for Z", "am I on
+  track for <goal>", "what if I buy / save more / the market dips". Spending habits → spending_insight;
   current-state risk → cashflow_health.
   ⚠️ TWO PHASES, IN ORDER. This skill loads INLINE and Phase A runs IN CHAT: read the injected profile,
-  call Plaid tools, ask the user for what's missing, set assumptions, and restate everything as a recap
-  the user confirms. ONLY after the recap is confirmed do you `transfer_to_agent("sandbox_runner")` to run
-  the deterministic engine (Phase B) in the sandbox. The sandbox canNOT see the profile / tool results and
-  canNOT ask the user — it inherits ONLY the conversation text, so the confirmed recap is the only thing
-  that crosses into it. Never transfer before the recap is confirmed.
+  call Plaid tools, ask for what's missing, set assumptions, and restate everything as a recap the user
+  confirms. ONLY after the recap is confirmed do you `transfer_to_agent("sandbox_runner")` to run the
+  deterministic engine (Phase B) in the sandbox — which canNOT see the profile/tools or ask the user, it
+  inherits only the conversation, so the confirmed recap is the only thing that crosses in. Never
+  transfer before it's confirmed.
 metadata:
   visible_to_agents:
     - user_agent_official
